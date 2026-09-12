@@ -52,6 +52,12 @@ jobs:
           cd "$env:APPDATA\.emacs.d"
           emacs --batch -l init.el --eval "(kill-emacs)"
 
+      # NOTE: welcome-tests.el is currently expected to fail 3/7 tests on both
+      # ubuntu-latest and macos-latest here. Root cause: purcell/setup-emacs
+      # builds lack librsvg, so "Invalid image type 'svg'" errors on the
+      # animated welcome-scene tests. This is an environment limitation, not
+      # a workflow bug — fix belongs in welcome-tests.el (skip-unless SVG
+      # available) or in swapping how Emacs gets installed on these runners.
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -63,6 +69,11 @@ jobs:
             echo "::endgroup::"
           done
 
+      # NOTE: editor-session-tests.el currently fails 2/6 tests on Windows
+      # only (session-desktop-roundtrip-restores-file-and-point and
+      # session-empty-start-shows-welcome). This looks like a real
+      # cross-platform bug in editor-session.el — state/path handling
+      # behaving differently on Windows — not a CI configuration issue.
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -86,7 +97,10 @@ jobs:
         with:
           usesh: true
           prepare: |
-            pkg install -y emacs
+            # git is required by straight.el's bootstrap (used in init.el)
+            # and is NOT preinstalled on the bare FreeBSD VM image, unlike
+            # the Linux/macOS/Windows GitHub-hosted runners.
+            pkg install -y emacs git
           run: |
             mkdir -p ~/.emacs.d
             cp -r . ~/.emacs.d/
