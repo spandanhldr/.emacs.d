@@ -17,11 +17,27 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install Emacs (Linux/macOS)
-        uses: purcell/setup-emacs@master
-        if: runner.os != 'Windows'
-        with:
-          version: 29.1
+      # Ubuntu's official apt package is a full desktop build compiled with
+      # librsvg (SVG image) support, unlike purcell/setup-emacs's minimal
+      # nix-emacs-ci binaries, which are trimmed for CI speed and drop
+      # optional image libraries. Using apt here gets the animated welcome
+      # scenes actually rendered and tested, not just skipped.
+      - name: Install Emacs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y emacs-gtk
+
+      # emacs-plus is a widely-used community formula that bundles librsvg,
+      # gnutls, libxml2, etc. by default — the regular Homebrew "emacs"
+      # formula was removed from homebrew-core, and even where available
+      # historically was not guaranteed to include SVG support.
+      - name: Install Emacs (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew tap d12frosted/emacs-plus
+          brew install emacs-plus@29
+          echo "$(brew --prefix)/opt/emacs-plus@29/bin" >> "$GITHUB_PATH"
 
       - name: Install Emacs (Windows)
         if: runner.os == 'Windows'
@@ -32,7 +48,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.emacs.d/straight
-          key: straight-${{ runner.os }}-29.1-${{ hashFiles('init.el') }}
+          key: straight-${{ runner.os }}-svg-${{ hashFiles('init.el') }}
 
       # Package installs (straight.el cloning many repos back-to-back) can hit
       # transient GitHub network/rate-limit issues on anonymous clones. Using
@@ -74,12 +90,6 @@ jobs:
           }
           if (-not $success) { exit 1 }
 
-      # NOTE: welcome-tests.el is currently expected to fail 3/7 tests on both
-      # ubuntu-latest and macos-latest here. Root cause: purcell/setup-emacs
-      # builds lack librsvg, so "Invalid image type 'svg'" errors on the
-      # animated welcome-scene tests. This is an environment limitation, not
-      # a workflow bug — fix belongs in welcome-tests.el (skip-unless SVG
-      # available) or in swapping how Emacs gets installed on these runners.
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         shell: bash
