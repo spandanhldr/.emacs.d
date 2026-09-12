@@ -21,11 +21,26 @@
 (defun my/startup-buffer ()
   "Keep the restored active editor, or choose an open editor or Welcome."
   (let ((current (window-buffer (selected-window))))
-    (or (and (buffer-local-value 'buffer-file-name current) current)
+    (or (and (eq current (get-buffer "*Welcome*")) current)
+        (and (buffer-local-value 'buffer-file-name current) current)
         (cl-find-if (lambda (buffer) (buffer-local-value 'buffer-file-name buffer))
                     (buffer-list))
         (cl-find-if #'my/nonempty-scratch-p (buffer-list))
         (my/welcome-buffer))))
+
+(defun my/session-save-open-tab-buffer (original filename bufname mode &rest rest)
+  "Save editors in open tabs, excluding buffers left behind by closed tabs."
+  (and (tab-bar-get-buffer-tab bufname t)
+       (or (eq mode 'my/pokemon-welcome-mode)
+           (apply original filename bufname mode rest))))
+
+(defun my/session-restore-welcome (&rest _)
+  "Recreate Welcome before desktop restores its window layout."
+  (my/welcome-buffer))
+
+(advice-add 'desktop-save-buffer-p :around #'my/session-save-open-tab-buffer)
+(add-to-list 'desktop-buffer-mode-handlers
+             '(my/pokemon-welcome-mode . my/session-restore-welcome))
 
 (defun my/save-scratch-session ()
   "Persist only untitled buffers that actually contain text."
@@ -56,6 +71,34 @@
                 (text-mode)
                 (insert (cdr pair))
                 (goto-char (point-min))))))))))
+
+(defun my/remove-discarded-auto-save ()
+  "Remove only this file buffer's recovery copy after a confirmed close."
+  (when (and buffer-file-name buffer-auto-save-file-name)
+    (let ((delete-auto-save-files t))
+      (delete-auto-save-file-if-necessary t))))
+
+;; This hook runs after the buffer's close confirmation and query functions.
+(add-hook 'kill-buffer-hook #'my/remove-discarded-auto-save)
+
+(defvar my/interactive-exit-in-progress nil)
+(defun my/with-confirmed-exit-cleanup (original &rest args)
+  "Scope cleanup to the normal save-and-exit workflow, not crashes or signals."
+  (let ((my/interactive-exit-in-progress t))
+    (apply original args)))
+
+(defun my/remove-auto-saves-before-confirmed-exit (&rest _)
+  "Discard file recovery copies only after every exit confirmation succeeds."
+  (when my/interactive-exit-in-progress
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when buffer-file-name
+          (my/remove-discarded-auto-save)
+          ;; Prevent the final shutdown auto-save from recreating the copy.
+          (auto-save-mode -1))))))
+
+(advice-add 'save-buffers-kill-emacs :around #'my/with-confirmed-exit-cleanup)
+(advice-add 'kill-emacs :before #'my/remove-auto-saves-before-confirmed-exit)
 
 ;; Use one stable directory regardless of the directory Emacs was launched in.
 ;; Set these before enabling the mode: the default asks before the first save.

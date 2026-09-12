@@ -1,0 +1,111 @@
+;;; native-terminal-tests.el --- Real shell and key routing regressions -*- lexical-binding: t; -*-
+(require 'ert)
+(require 'cl-lib)
+(dolist (package '("ghostel" "compat" "corfu"))
+  (add-to-list 'load-path (expand-file-name (concat "straight/build/" package))))
+(require 'corfu)
+(load-file "modal-terminal.el")
+(require 'ghostel)
+
+(defun my/native-test-wait (predicate &optional timeout)
+  (let ((deadline (+ (float-time) (or timeout 8))))
+    (while (and (not (funcall predicate)) (< (float-time) deadline))
+      (accept-process-output nil 0.05))
+    (unless (funcall predicate) (ert-fail (format "Timed out; terminal screen: %s" (my/native-test-screen))))))
+
+(defun my/native-test-screen ()
+  (replace-regexp-in-string "[\n\r]" ""
+                            (buffer-substring-no-properties (or (ghostel--viewport-start) (point-min)) (point-max))))
+
+(ert-deftest native-unix-selects-configured-shell ()
+  (let ((my/quake-shell nil))
+    (dolist (system-type '(gnu/linux darwin berkeley-unix))
+      (let ((process-environment (cons "SHELL=/bin/zsh" process-environment)))
+        (should (equal (my/quake-shell-command) "/bin/zsh"))))))
+
+(ert-deftest native-windows-skips-broken-store-alias ()
+  (let ((system-type 'windows-nt) (my/quake-shell nil) (my/quake-windows-shell-cache nil))
+    (cl-letf (((symbol-function 'executable-find) #'identity)
+              ((symbol-function 'call-process)
+               (lambda (exe &rest _) (if (equal exe "pwsh.exe") (error "Broken alias") 0))))
+      (should (equal (my/quake-shell-command) '("powershell.exe" "-NoLogo"))))))
+
+(ert-deftest native-shell-override-respected ()
+  (let ((my/quake-shell '("/bin/fish" "--login")))
+    (should (equal (my/quake-shell-command) my/quake-shell))))
+
+(ert-deftest native-powershell-clears-completes-and-reports-real-directory ()
+  (skip-unless (eq system-type 'windows-nt))
+  (let* ((directory (file-name-as-directory (make-temp-file "native shell [test]-" t)))
+         (source (generate-new-buffer "native-test-editor"))
+         (shell (car (my/quake-shell-command)))
+         ;; Use the real line editor, without modifying the user's persistent history.
+         (my/quake-shell (list shell "-NoLogo" "-NoProfile" "-NoExit" "-Command"
+                              "Import-Module PSReadLine; Set-PSReadLineOption -HistorySaveStyle SaveNothing"))
+         terminal)
+    (unwind-protect
+        (save-window-excursion
+          (delete-other-windows)
+          (switch-to-buffer source)
+          (text-mode)
+          (setq default-directory directory)
+          (my/quake-toggle)
+          (setq terminal (current-buffer))
+          (my/native-test-wait (lambda () (string-match-p "PS .* >\\|PS .*?> " (buffer-string))))
+          (should (derived-mode-p 'ghostel-mode))
+          (should-not (bound-and-true-p corfu-mode))
+          (should-not (bound-and-true-p my/modal-edit-mode))
+          (let ((noninteractive nil)) (corfu--on))
+          (should-not (bound-and-true-p corfu-mode))
+          (should-not completion-at-point-functions)
+          (should (eq (key-binding (kbd "TAB")) #'ghostel--send-event))
+          (should (eq (key-binding (kbd "C-l")) #'ghostel--send-event))
+          (should (eq (key-binding "`") #'ghostel--self-insert))
+          (should (eq (key-binding (kbd "<escape>")) #'my/quake-hide))
+          (should-not (eq (key-binding "~") #'my/quake-toggle))
+          (ghostel-send-string "Get-Locatio")
+          (execute-kbd-macro (kbd "TAB"))
+          (my/native-test-wait (lambda () (string-match-p "Get-Location" (my/native-test-screen))))
+          (execute-kbd-macro (kbd "RET"))
+          (my/native-test-wait (lambda () (string-match-p "Path" (my/native-test-screen))))
+          ;; Actual PowerShell output, not an Emacs directory variable.
+          (ghostel-send-string "Write-Output ('NATIVE_CWD=' + $PWD.Path)")
+          (execute-kbd-macro (kbd "RET"))
+          (my/native-test-wait
+           (lambda () (and (string-match-p "NATIVE_CWD=" (my/native-test-screen))
+                           (string-match-p (regexp-quote (file-name-nondirectory (directory-file-name directory)))
+                                           (my/native-test-screen)))))
+          (execute-kbd-macro (kbd "C-l"))
+          (my/native-test-wait (lambda () (not (string-match-p "NATIVE_CWD=" (my/native-test-screen)))))
+          (execute-kbd-macro (kbd "C-l"))
+          (accept-process-output nil 0.2)
+          (should-not (string-match-p "NATIVE_CWD=" (my/native-test-screen)))
+          (should (string-match-p "PS .*?> " (my/native-test-screen))))
+      (my/quake-cancel-timer (selected-frame))
+      (when (buffer-live-p terminal)
+        (with-current-buffer terminal
+          (when (process-live-p ghostel--process)
+            (set-process-query-on-exit-flag ghostel--process nil)))
+        (kill-buffer terminal))
+      (when (buffer-live-p source) (kill-buffer source))
+      (delete-directory directory))))
+
+(ert-deftest native-close-reopen-keeps-emacs-file-handles-valid ()
+  (let ((source (generate-new-buffer "native-lifecycle-editor")) terminal)
+    (unwind-protect
+        (dotimes (_ 3)
+          (setq terminal (my/quake-terminal source))
+          (with-current-buffer terminal
+            (let ((deadline (+ (float-time) 5)))
+              (while (and (= (buffer-size) 0) (< (float-time) deadline))
+                (accept-process-output nil 0.05)))
+            (set-process-query-on-exit-flag ghostel--process nil))
+          (kill-buffer terminal)
+          ;; No test-side waits: normal console cleanup must make this safe.
+          (with-temp-buffer
+            (insert-file-contents "native-terminal.el")
+            (should (> (buffer-size) 0))))
+      (when (buffer-live-p terminal) (kill-buffer terminal))
+      (kill-buffer source))))
+
+(ert-run-tests-batch-and-exit)

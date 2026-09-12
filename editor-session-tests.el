@@ -75,4 +75,45 @@
           (should (eq (my/startup-buffer) buffer)))
       (when (buffer-live-p buffer) (kill-buffer buffer)))))
 
+(ert-deftest session-closed-tab-is-not-restored-with-welcome ()
+  (let* ((file (expand-file-name "closed-tab.txt" user-emacs-directory))
+         (desktop-restore-frames nil) buffer)
+    (unwind-protect
+        (save-window-excursion
+          (tab-bar-close-other-tabs)
+          (with-temp-file file (insert "closed editor"))
+          (setq buffer (find-file-noselect file))
+          (switch-to-buffer buffer)
+          (desktop-save user-emacs-directory t)
+          (tab-bar-new-tab)
+          (tab-bar-close-tab 1)
+          (should (eq (current-buffer) (my/welcome-buffer)))
+          ;; Clicking a tab's X leaves its buffer alive internally.
+          (should (buffer-live-p buffer))
+          (desktop-save user-emacs-directory t)
+          (kill-buffer buffer)
+          (kill-buffer "*Welcome*")
+          (let ((noninteractive nil)) (desktop-read user-emacs-directory))
+          (should-not (find-buffer-visiting file))
+          (should (get-buffer "*Welcome*"))
+          (switch-to-buffer "*Welcome*")
+          (should (eq (my/startup-buffer) (current-buffer))))
+      (when (buffer-live-p buffer) (kill-buffer buffer)))))
+
+(ert-deftest session-welcome-remains-active-with-other-open-tab ()
+  (save-window-excursion
+    (let ((buffer (generate-new-buffer "open-editor")))
+      (unwind-protect
+          (progn
+            (tab-bar-close-other-tabs)
+            (switch-to-buffer buffer)
+            (setq-local buffer-file-name (expand-file-name "other.txt" user-emacs-directory))
+            (tab-bar-new-tab)
+            (should (tab-bar-get-buffer-tab buffer t))
+            (should (desktop-save-buffer-p (buffer-local-value 'buffer-file-name buffer)
+                                           (buffer-name buffer) 'text-mode))
+            (should (eq (my/startup-buffer) (my/welcome-buffer))))
+        (tab-bar-close-other-tabs)
+        (kill-buffer buffer)))))
+
 (ert-run-tests-batch-and-exit)

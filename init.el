@@ -123,7 +123,7 @@
       corfu-auto-delay 0.15
       corfu-auto-prefix 2
       corfu-cycle t
-      corfu-preselect 'prompt
+      corfu-preselect 'first
       corfu-preview-current nil)
 
 (global-corfu-mode 1)
@@ -219,3 +219,10 @@
 (load (expand-file-name "vscode-keys.el" user-emacs-directory) nil 'nomessage)
 (load (expand-file-name "command-palette.el" user-emacs-directory) nil 'nomessage)
 
+
+(straight-use-package '(ghostel :type git :host github :repo "dakra/ghostel"
+                               :files ("lisp/*.el" "etc")))
+(load (expand-file-name "modal-terminal.el" user-emacs-directory) nil 'nomessage)
+
+(load (expand-file-name "search-panel.el" user-emacs-directory) nil 'nomessage)
+(load (expand-file-name "notebooks.el" user-emacs-directory) nil 'nomessage)

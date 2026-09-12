@@ -26,3 +26,9 @@
 # CI workflow
 !.github/
 !.github/**
+!search-panel.el
+!search-panel-tests.el
+!notebooks.el
+!notebooks-tests.el
+!notebook-kernel.py
+!notebook-kernel-tests.el

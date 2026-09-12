@@ -2,7 +2,7 @@
 
 ;; Reference: https://code.visualstudio.com/shortcuts/keyboard-shortcuts-windows.pdf
 ;; Emacs equivalents: quick open uses project files, Explorer uses Dired,
-;; the terminal uses Eshell, and settings opens init.el. Debugger/extension
+;; the terminal uses the native-shell dropdown, and settings opens init.el. Debugger/extension
 ;; UI commands require separate integrations and are intentionally not mapped.
 
 (require 'cl-lib)
@@ -244,8 +244,8 @@
 (defun my/vscode-unfold () (interactive) (hs-minor-mode 1) (hs-show-block))
 (defun my/vscode-fold-all () (interactive) (hs-minor-mode 1) (hs-hide-all))
 (defun my/vscode-unfold-all () (interactive) (hs-minor-mode 1) (hs-show-all))
-(defun my/vscode-terminal () (interactive) (eshell))
-(defun my/vscode-new-terminal () (interactive) (eshell t))
+(defun my/vscode-terminal () (interactive) (my/quake-toggle))
+(defun my/vscode-new-terminal () (interactive) (my/quake-new-terminal))
 (defun my/vscode-select-next ()
   "Select the word at point first, then add its next occurrence."
   (interactive)
@@ -333,7 +333,7 @@
   :lighter " VSKeys" :keymap my/vscode-keys-mode-map)
 (defun my/vscode-enable-in-editor ()
   ;; Preserve minibuffer, Dired, help and shell-specific interaction.
-  (unless (or (minibufferp) (derived-mode-p 'special-mode 'comint-mode 'eshell-mode))
+  (unless (or (minibufferp) (derived-mode-p 'special-mode 'comint-mode 'eshell-mode 'ghostel-mode))
     (my/vscode-keys-mode 1)))
 (define-globalized-minor-mode my/global-vscode-keys-mode
   my/vscode-keys-mode my/vscode-enable-in-editor)
@@ -349,10 +349,16 @@
 (define-key isearch-mode-map (kbd "<f3>") #'isearch-repeat-forward)
 (define-key isearch-mode-map (kbd "S-<f3>") #'isearch-repeat-backward)
 (define-key isearch-mode-map (kbd "C-v") #'isearch-yank-kill)
+(defun my/corfu-accept-candidate ()
+  "Accept the selected suggestion, or the first suggestion, in one keypress."
+  (interactive)
+  (when (< corfu--index 0) (corfu-next))
+  (corfu-insert))
+
 (with-eval-after-load 'corfu
   (define-key corfu-map (kbd "<escape>") #'corfu-quit)
-  (define-key corfu-map (kbd "TAB") #'corfu-insert)
-  (define-key corfu-map (kbd "<tab>") #'corfu-insert))
+  (define-key corfu-map (kbd "TAB") #'my/corfu-accept-candidate)
+  (define-key corfu-map (kbd "<tab>") #'my/corfu-accept-candidate))
 
 ;; Remove the old advice as well when re-evaluating an already running config.
 (advice-remove 'kill-buffer #'my/kill-buffer-advice)
