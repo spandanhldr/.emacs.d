@@ -36,6 +36,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew tap d12frosted/emacs-plus
+          brew trust d12frosted/emacs-plus
           brew install emacs-plus@29
           echo "$(brew --prefix)/opt/emacs-plus@29/bin" >> "$GITHUB_PATH"
 
