@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install Emacs (Linux/macOS)
+        uses: purcell/setup-emacs@master
+        if: runner.os != 'Windows'
+        with:
+          version: 29.1
+
+      - name: Install Emacs (Windows)
+        if: runner.os == 'Windows'
+        run: choco install emacs -y --no-progress
+
+      - name: Cache Straight packages (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.emacs.d/straight
+          key: straight-${{ runner.os }}-29.1-${{ hashFiles('init.el') }}
+
+      - name: First-run init (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p ~/.emacs.d
+          cp -r . ~/.emacs.d/
+          cd ~/.emacs.d
+          emacs --batch -l init.el --eval "(kill-emacs)"
+
+      - name: First-run init (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:APPDATA\.emacs.d"
+          Copy-Item -Path .\* -Destination "$env:APPDATA\.emacs.d" -Recurse -Force
+          cd "$env:APPDATA\.emacs.d"
+          emacs --batch -l init.el --eval "(kill-emacs)"
+
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd ~/.emacs.d
+          for f in vscode-keys-tests.el editor-session-tests.el welcome-tests.el portability-tests.el command-palette-tests.el; do
+            echo "::group::$f"
+            emacs --batch -Q -l "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd "$env:APPDATA\.emacs.d"
+          foreach ($f in @("vscode-keys-tests.el","editor-session-tests.el","welcome-tests.el","portability-tests.el","command-palette-tests.el")) {
+            Write-Host "::group::$f"
+            emacs --batch -Q -l $f
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Write-Host "::endgroup::"
+          }
+
+  test-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run tests inside FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y emacs
+          run: |
+            mkdir -p ~/.emacs.d
+            cp -r . ~/.emacs.d/
+            cd ~/.emacs.d
+            emacs --batch -l init.el --eval "(kill-emacs)"
+            for f in vscode-keys-tests.el editor-session-tests.el welcome-tests.el portability-tests.el command-palette-tests.el; do
+              emacs --batch -Q -l "$f"
+            done

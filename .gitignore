@@ -18,3 +18,11 @@
 !platform.el
 !portability-tests.el
 !README.md
+!editor-behavior-tests.el
+!modal-terminal.el
+!modal-terminal-tests.el
+!native-terminal.el
+!native-terminal-tests.el
+# CI workflow
+!.github/
+!.github/**
