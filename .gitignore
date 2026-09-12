@@ -2,4 +2,19 @@
 *
 # Except init.el
 !init.el
+!vscode-keys.el
+!vscode-keys-tests.el
+!editor-session.el
+!editor-session-tests.el
+!save-file-dialog.ps1
+!command-palette.el
+!command-palette-tests.el
+!pokemon-welcome.el
+!early-init.el
+!welcome-tests.el
+!welcome-themes.el
 # Anything Else?
+!welcome-geometry.el
+!platform.el
+!portability-tests.el
+!README.md

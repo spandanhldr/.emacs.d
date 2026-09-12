@@ -1,0 +1,68 @@
+;;; portability-tests.el --- Platform routing and capability regressions -*- lexical-binding: t; -*-
+(require 'ert)
+(defvar native-comp-async-jobs-number)
+(defmacro use-package (&rest _) nil)
+(load-file "platform.el")
+(load-file "vscode-keys.el")
+(load-file "pokemon-welcome.el")
+(setq my/welcome-heading "Test welcome" kill-emacs-hook nil)
+
+(ert-deftest portable-native-dialog-routing ()
+  ;; Simulate OS selection, not actual native UI execution on those systems.
+  (dolist (system-type '(darwin gnu/linux berkeley-unix gnu/kfreebsd))
+    (with-temp-buffer
+      (setq buffer-file-name (expand-file-name "current name.txt"))
+      (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+                ((symbol-function 'my/vscode-windows-file-dialog)
+                 (lambda (&rest _) (ert-fail "Windows helper on Unix")))
+                ((symbol-function 'read-file-name)
+                 (lambda (_prompt directory default mustmatch initial &rest _)
+                   (should use-file-dialog)
+                   (should-not last-nonmenu-event)
+                   (if mustmatch (should-not initial)
+                     (should (equal initial "current name.txt"))
+                     (should (equal default (expand-file-name initial directory))))
+                   "chosen.txt")))
+        (should (equal (my/vscode-read-file-dialog "Open: " t) "chosen.txt"))
+        (should (equal (my/vscode-read-file-dialog "Save: ") "chosen.txt"))))))
+
+(ert-deftest portable-terminal-does-not-call-windows-helper ()
+  (let ((system-type 'windows-nt))
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil))
+              ((symbol-function 'my/vscode-windows-file-dialog)
+               (lambda (&rest _) (ert-fail "Native UI in terminal")))
+              ((symbol-function 'read-file-name) (lambda (&rest _) "chosen.txt")))
+      (should (equal (my/vscode-read-file-dialog "Open: " t) "chosen.txt")))))
+
+(ert-deftest portable-no-svg-welcome-retains-actions-and-clock ()
+  (with-temp-buffer
+    (my/pokemon-welcome-mode)
+    (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) t))
+              ((symbol-function 'image-type-available-p) (lambda (_) nil)))
+      (my/welcome-render (selected-window))
+      (should-not my/welcome-images)
+      (should (string-match-p "COMMANDS" (buffer-string)))
+      (should (overlay-get my/welcome-clock 'my/last-value)))))
+
+(ert-deftest portable-terminal-font-does-not-query-display ()
+  (cl-letf (((symbol-function 'display-graphic-p) (lambda (&rest _) nil))
+            ((symbol-function 'find-font) (lambda (&rest _) (ert-fail "Font query in terminal"))))
+    (my/configure-frame-font (selected-frame))))
+
+(ert-deftest portable-missing-server-does-not-start-eglot ()
+  (require 'eglot)
+  (with-temp-buffer
+    (setq major-mode 'python-mode)
+    (cl-letf (((symbol-function 'executable-find) (lambda (_) nil))
+              ((symbol-function 'eglot-ensure) (lambda () (ert-fail "Missing server launched"))))
+      (my/eglot-ensure-if-installed))))
+
+(ert-deftest portable-compilation-budget ()
+  (dolist (cpus '(1 2 8 24))
+    (let ((native-comp-async-jobs-number nil)
+          (emacs-startup-hook nil))
+      (cl-letf (((symbol-function 'num-processors) (lambda (&rest _) cpus)))
+        (load-file "early-init.el")
+        (should (= native-comp-async-jobs-number (min 4 (max 1 (/ cpus 2)))))))))
+
+(ert-run-tests-batch-and-exit)
