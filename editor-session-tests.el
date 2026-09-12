@@ -69,7 +69,7 @@
           (kill-buffer buffer)
           ;; Desktop intentionally skips reads in batch mode.
           (let ((noninteractive nil)) (desktop-read user-emacs-directory))
-          (setq buffer (get-file-buffer file))
+          (setq buffer (find-buffer-visiting file))
           (should (buffer-live-p buffer))
           (should (= (with-current-buffer buffer (point)) 15))
           (should (eq (my/startup-buffer) buffer)))
