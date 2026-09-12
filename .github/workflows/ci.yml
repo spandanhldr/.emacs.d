@@ -34,23 +34,45 @@ jobs:
           path: ~/.emacs.d/straight
           key: straight-${{ runner.os }}-29.1-${{ hashFiles('init.el') }}
 
+      # Package installs (straight.el cloning many repos back-to-back) can hit
+      # transient GitHub network/rate-limit issues on anonymous clones. Using
+      # the built-in GITHUB_TOKEN raises the clone rate limit, and the retry
+      # loop covers any other one-off network blip.
       - name: First-run init (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
           mkdir -p ~/.emacs.d
           cp -r . ~/.emacs.d/
           cd ~/.emacs.d
-          emacs --batch -l init.el --eval "(kill-emacs)"
+          for attempt in 1 2 3; do
+            emacs --batch -l init.el --eval "(kill-emacs)" && break
+            echo "First-run init failed (attempt $attempt/3), retrying..."
+            sleep 10
+            if [ "$attempt" = 3 ]; then exit 1; fi
+          done
 
       - name: First-run init (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          git config --global url."https://$env:GH_TOKEN@github.com/".insteadOf "https://github.com/"
           New-Item -ItemType Directory -Force -Path "$env:APPDATA\.emacs.d"
           Copy-Item -Path .\* -Destination "$env:APPDATA\.emacs.d" -Recurse -Force
           cd "$env:APPDATA\.emacs.d"
-          emacs --batch -l init.el --eval "(kill-emacs)"
+          $success = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            emacs --batch -l init.el --eval "(kill-emacs)"
+            if ($LASTEXITCODE -eq 0) { $success = $true; break }
+            Write-Host "First-run init failed (attempt $attempt/3), retrying..."
+            Start-Sleep -Seconds 10
+          }
+          if (-not $success) { exit 1 }
 
       # NOTE: welcome-tests.el is currently expected to fail 3/7 tests on both
       # ubuntu-latest and macos-latest here. Root cause: purcell/setup-emacs
@@ -105,7 +127,12 @@ jobs:
             mkdir -p ~/.emacs.d
             cp -r . ~/.emacs.d/
             cd ~/.emacs.d
-            emacs --batch -l init.el --eval "(kill-emacs)"
+            for attempt in 1 2 3; do
+              emacs --batch -l init.el --eval "(kill-emacs)" && break
+              echo "First-run init failed (attempt $attempt/3), retrying..."
+              sleep 10
+              if [ "$attempt" = 3 ]; then exit 1; fi
+            done
             for f in vscode-keys-tests.el editor-session-tests.el welcome-tests.el portability-tests.el command-palette-tests.el; do
               emacs --batch -Q -l "$f"
             done
